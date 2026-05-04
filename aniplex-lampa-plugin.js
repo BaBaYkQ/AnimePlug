@@ -1,450 +1,443 @@
-(function () {
-    'use strict';
+// AniPlex Plugin for Lampa
+// Sources: AniLibria (HLS) + Kodik (iframe)
 
-    // ══════════════════════════════════════════════════════════════════
-    //  КОНФІГ
-    // ══════════════════════════════════════════════════════════════════
-    var CFG = {
-        anilibria: { api: 'https://api.anilibria.tv/v3', img: 'https://www.anilibria.tv' },
-        kodik:     { search: 'https://kodikapi.com/search', token: 'd7b9c4e3a1f8e2d6c0b5a9f3e7d1c8b4' }
-    };
+(function() {
 
-    // ══════════════════════════════════════════════════════════════════
-    //  УТИЛІТИ
-    // ══════════════════════════════════════════════════════════════════
-    function get(url, cb, errCb) {
-        fetch(url)
-            .then(function (r) { return r.json(); })
-            .then(cb)
-            .catch(function (e) { console.warn('[AniPlex]', e); if (errCb) errCb(e); });
-    }
+var API_ALI  = 'https://api.anilibria.tv/v3';
+var IMG_ALI  = 'https://www.anilibria.tv';
+var API_KOD  = 'https://kodikapi.com/search';
+var TOK_KOD  = 'd7b9c4e3a1f8e2d6c0b5a9f3e7d1c8b4';
 
-    function esc(s) {
-        return String(s || '').replace(/[&<>"']/g, function (c) {
-            return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+// ---------- helpers ----------
+
+function ajax(url, ok, fail) {
+    fetch(url)
+        .then(function(r){ return r.json(); })
+        .then(ok)
+        .catch(function(e){ console.warn('[AniPlex]', e); if(fail) fail(); });
+}
+
+function imgUrl(p, base) {
+    if (!p) return '';
+    return p.indexOf('http') === 0 ? p : (base || '') + p;
+}
+
+function safeText(s) {
+    return (s || '').toString()
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+}
+
+// ---------- CSS ----------
+
+function addStyles() {
+    if (document.getElementById('aniplex_style')) return;
+    var el = document.createElement('style');
+    el.id  = 'aniplex_style';
+    el.textContent = ''
+        + '.aniplex_wrap{padding:20px 30px}'
+        + '.aniplex_head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px}'
+        + '.aniplex_logo{font-size:22px;font-weight:900;color:#e63946;letter-spacing:1px}'
+        + '.aniplex_tabs{display:flex;gap:8px}'
+        + '.aniplex_tab{padding:6px 16px;border-radius:20px;background:rgba(255,255,255,0.1);cursor:pointer;font-size:14px}'
+        + '.aniplex_tab:hover,.aniplex_tab:focus{background:rgba(255,255,255,0.22);outline:none}'
+        + '.aniplex_tab.on{background:#e63946;color:#fff;font-weight:700}'
+        + '.aniplex_grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:14px}'
+        + '.aniplex_card{border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.07);cursor:pointer;outline:none}'
+        + '.aniplex_card:hover,.aniplex_card:focus{transform:scale(1.04);box-shadow:0 8px 28px rgba(0,0,0,0.55)}'
+        + '.aniplex_card img{width:100%;aspect-ratio:2/3;object-fit:cover;display:block}'
+        + '.aniplex_card_body{padding:7px 9px 10px}'
+        + '.aniplex_card_title{font-size:13px;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}'
+        + '.aniplex_card_year{font-size:11px;color:rgba(255,255,255,0.4);margin-top:3px}'
+        + '.aniplex_spin_wrap{display:flex;justify-content:center;padding:40px}'
+        + '.aniplex_spin{width:36px;height:36px;border:3px solid rgba(255,255,255,0.1);border-top-color:#e63946;border-radius:50%;animation:aniplex_rot 0.8s linear infinite}'
+        + '@keyframes aniplex_rot{to{transform:rotate(360deg)}}'
+        // detail
+        + '.aniplex_detail{position:relative;overflow:hidden;min-height:100%}'
+        + '.aniplex_detail_bg{position:absolute;top:0;left:0;right:0;bottom:0;background-size:cover;background-position:center;filter:blur(20px) brightness(0.3);transform:scale(1.1);z-index:0}'
+        + '.aniplex_detail_inner{position:relative;z-index:1;display:flex;gap:24px;padding:24px;flex-wrap:wrap;align-items:flex-start}'
+        + '.aniplex_detail_poster{width:170px;flex-shrink:0;border-radius:8px;overflow:hidden;box-shadow:0 10px 36px rgba(0,0,0,0.6)}'
+        + '.aniplex_detail_poster img{width:100%;display:block}'
+        + '.aniplex_detail_right{flex:1;min-width:200px}'
+        + '.aniplex_detail_title{font-size:26px;font-weight:800;margin:0 0 6px;line-height:1.2}'
+        + '.aniplex_detail_meta{font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:12px}'
+        + '.aniplex_detail_desc{font-size:13px;line-height:1.55;color:rgba(255,255,255,0.75);max-height:100px;overflow:hidden;margin-bottom:18px}'
+        + '.aniplex_btn{display:inline-block;padding:10px 28px;border-radius:24px;font-size:15px;font-weight:700;cursor:pointer;outline:none;margin-bottom:10px}'
+        + '.aniplex_btn_play{background:#e63946;color:#fff}'
+        + '.aniplex_btn_play:hover,.aniplex_btn_play:focus{background:#ff4d5a;box-shadow:0 4px 18px rgba(230,57,70,0.55)}'
+        + '.aniplex_src_hint{font-size:12px;color:rgba(255,255,255,0.35);margin-top:4px}'
+        + '.aniplex_loading_hint{font-size:13px;color:rgba(255,255,255,0.4);display:flex;align-items:center;gap:8px}'
+        + '.aniplex_spin_sm{width:14px;height:14px;border:2px solid rgba(255,255,255,0.15);border-top-color:#e63946;border-radius:50%;animation:aniplex_rot 0.8s linear infinite;display:inline-block}'
+        ;
+    document.head.appendChild(el);
+}
+
+// ============================================================
+//  CATALOG COMPONENT
+// ============================================================
+
+function CatalogComp(params) {
+    var self   = this;
+    self.params = params;
+    self.mode  = (params.data && params.data.mode) || 'catalog';
+    self.page  = 1;
+    self.busy  = false;
+    self.query = '';
+    self.$grid = null;
+    self.$spin = null;
+
+    self.create = function() {
+        addStyles();
+
+        self.$root = $('<div class="aniplex_wrap"></div>');
+
+        // header
+        self.$root.append(
+            '<div class="aniplex_head">'
+          + '<div class="aniplex_logo">&#9760; AniPlex</div>'
+          + '<div class="aniplex_tabs">'
+          + '<div class="aniplex_tab selector" data-mode="catalog">Каталог</div>'
+          + '<div class="aniplex_tab selector" data-mode="updates">Новинки</div>'
+          + '<div class="aniplex_tab selector" data-mode="search">Пошук</div>'
+          + '</div></div>'
+        );
+
+        self.$grid = $('<div class="aniplex_grid"></div>');
+        self.$spin = $('<div class="aniplex_spin_wrap" style="display:none"><div class="aniplex_spin"></div></div>');
+
+        self.$root.append(self.$grid).append(self.$spin);
+
+        self.$root.find('.aniplex_tab').on('click', function() {
+            var m = $(this).data('mode');
+            if (m === 'search') { self.openSearch(); }
+            else { self.go(m); }
         });
-    }
 
-    function img(path, base) {
-        if (!path) return './img/img_error.svg';
-        return path.startsWith('http') ? path : (base || '') + path;
-    }
+        self.go(self.mode);
 
-    // ══════════════════════════════════════════════════════════════════
-    //  ANILIBRIA
-    // ══════════════════════════════════════════════════════════════════
-    var AniLibria = {
-        buildCard: function (item) {
-            var poster = img(item.posters && item.posters.medium && item.posters.medium.url, CFG.anilibria.img);
-            var title  = (item.names && item.names.ru) || (item.names && item.names.en) || '—';
-            return {
-                id:             item.id,
-                title:          title,
-                original_title: (item.names && item.names.en) || '',
-                poster:         poster,
-                backdrop:       img(item.posters && item.posters.original && item.posters.original.url, CFG.anilibria.img),
-                overview:       item.description || '',
-                score:          item.rating ? Number(item.rating.average || 0).toFixed(1) : '0',
-                year:           item.season && item.season.year ? String(item.season.year) : '',
-                genres:         (item.genres || []).join(', '),
-                _raw:           item
-            };
-        },
-
-        listUrl: function (mode, page, query) {
-            var f = '&filter=id,names,posters,description,genres,season,rating,player';
-            if (mode === 'search' && query)
-                return CFG.anilibria.api + '/title/search?search=' + encodeURIComponent(query) + '&limit=20&page=' + page + f;
-            if (mode === 'updates')
-                return CFG.anilibria.api + '/title/updates?limit=20&page=' + page + f;
-            return CFG.anilibria.api + '/title/list?limit=20&page=' + page + f + '&order_by=rating_votes&sort_direction=1';
-        },
-
-        episodes: function (raw) {
-            if (!raw || !raw.player || !raw.player.list) return [];
-            var host = raw.player.host ? 'https://' + raw.player.host : 'https://cache.libria.fun';
-            return Object.keys(raw.player.list)
-                .sort(function (a, b) { return parseInt(a) - parseInt(b); })
-                .map(function (n) {
-                    var ep  = raw.player.list[n];
-                    var hls = ep.hls || {};
-                    var q   = {};
-                    if (hls.fhd) q['1080p'] = host + hls.fhd;
-                    if (hls.hd)  q['720p']  = host + hls.hd;
-                    if (hls.sd)  q['480p']  = host + hls.sd;
-                    return { num: n, title: ep.name || ('Серія ' + n), file: q['1080p'] || q['720p'] || q['480p'] || '', quality: q };
-                });
-        }
+        return self.$root;
     };
 
-    // ══════════════════════════════════════════════════════════════════
-    //  KODIK
-    // ══════════════════════════════════════════════════════════════════
-    var Kodik = {
-        search: function (title, cb) {
-            var url = CFG.kodik.search +
-                '?token=' + CFG.kodik.token +
-                '&title=' + encodeURIComponent(title) +
-                '&limit=8&with_episodes=true&types=anime-serial,anime';
-            get(url, function (d) { cb(d && d.results ? d.results : []); }, function () { cb([]); });
-        },
-
-        episodes: function (result) {
-            var eps = [];
-            if (!result || !result.seasons) return eps;
-            Object.keys(result.seasons).sort(function(a,b){return parseInt(a)-parseInt(b);}).forEach(function (sn) {
-                var s = result.seasons[sn];
-                if (!s.episodes) return;
-                Object.keys(s.episodes).sort(function(a,b){return parseInt(a)-parseInt(b);}).forEach(function (en) {
-                    var ep = s.episodes[en];
-                    eps.push({ num: en, season: sn, title: 'Серія ' + en, iframe: ep.link ? 'https:' + ep.link : '' });
-                });
-            });
-            return eps;
-        }
-    };
-
-    // ══════════════════════════════════════════════════════════════════
-    //  КАТАЛОГ
-    // ══════════════════════════════════════════════════════════════════
-    function CatalogComponent(object) {
-        var self  = this;
-        self.mode = (object.data && object.data.mode) || 'catalog';
+    self.go = function(m) {
+        self.mode = m;
         self.page = 1;
-        self.busy = false;
-        self.query = '';
+        self.$grid.empty();
+        self.$root.find('.aniplex_tab').removeClass('on');
+        self.$root.find('[data-mode="' + m + '"]').addClass('on');
+        self.load();
+    };
 
-        self.create = function () {
-            injectStyles();
-            self.wrap = $('<div class="ap-catalog"></div>');
-            self.head = $(
-                '<div class="ap-head">' +
-                '  <div class="ap-logo"><span class="ap-logo-icon">鬼</span>' +
-                '    <div><b class="ap-logo-name">AniPlex</b>' +
-                '    <small class="ap-logo-sub">AniLibria · Kodik · YummyAnime</small></div></div>' +
-                '  <div class="ap-tabs">' +
-                '    <div class="ap-tab selector" data-m="catalog">Каталог</div>' +
-                '    <div class="ap-tab selector" data-m="updates">Новинки</div>' +
-                '    <div class="ap-tab selector" data-m="search">&#128269; Пошук</div>' +
-                '  </div>' +
-                '</div>'
-            );
-            self.grid   = $('<div class="ap-grid"></div>');
-            self.loader = $('<div class="ap-loader" style="display:none"><div class="ap-spin"></div></div>');
+    self.openSearch = function() {
+        Lampa.Modal.open({
+            title: 'Пошук аніме',
+            html: Lampa.Template.get('modal_search', {}),
+            onSearch: function(q) {
+                self.query = q;
+                self.mode  = 'search';
+                self.page  = 1;
+                self.$grid.empty();
+                self.$root.find('.aniplex_tab').removeClass('on');
+                self.$root.find('[data-mode="search"]').addClass('on');
+                Lampa.Modal.close();
+                self.load();
+            }
+        });
+    };
 
-            self.wrap.append(self.head).append(self.grid).append(self.loader);
+    self.load = function() {
+        if (self.busy) return;
+        self.busy = true;
+        self.$spin.show();
 
-            self.head.find('.ap-tab').on('click', function () {
-                var m = $(this).data('m');
-                if (m === 'search') { self.doSearch(); } else { self.switchMode(m); }
+        var url;
+        var f = '&filter=id,names,posters,description,genres,season,rating,player';
+        if (self.mode === 'search' && self.query) {
+            url = API_ALI + '/title/search?search=' + encodeURIComponent(self.query) + '&limit=20&page=' + self.page + f;
+        } else if (self.mode === 'updates') {
+            url = API_ALI + '/title/updates?limit=20&page=' + self.page + f;
+        } else {
+            url = API_ALI + '/title/list?limit=20&page=' + self.page + f + '&order_by=rating_votes&sort_direction=1';
+        }
+
+        ajax(url, function(data) {
+            self.busy = false;
+            self.$spin.hide();
+            var list = data.list || [];
+            list.forEach(function(item) { self.addCard(item); });
+            if (self.page === 1 && list.length) {
+                self.$grid.find('.aniplex_card').first().focus();
+            }
+        }, function() {
+            self.busy = false;
+            self.$spin.hide();
+            Lampa.Noty.show('Помилка завантаження AniLibria');
+        });
+    };
+
+    self.addCard = function(item) {
+        var title  = (item.names && item.names.ru) || (item.names && item.names.en) || '—';
+        var poster = imgUrl(item.posters && item.posters.medium && item.posters.medium.url, IMG_ALI);
+        var year   = (item.season && item.season.year) ? String(item.season.year) : '';
+
+        var $card = $(
+            '<div class="aniplex_card selector" tabindex="0">'
+          + '<img src="' + safeText(poster) + '" loading="lazy" onerror="this.src=\'./img/img_error.svg\'">'
+          + '<div class="aniplex_card_body">'
+          + '<div class="aniplex_card_title">' + safeText(title) + '</div>'
+          + '<div class="aniplex_card_year">' + safeText(year) + '</div>'
+          + '</div></div>'
+        );
+
+        $card.on('click keydown', function(e) {
+            if (e.type === 'click' || e.keyCode === 13) {
+                self.openDetail(item, title, poster);
+            }
+        });
+
+        self.$grid.append($card);
+    };
+
+    self.openDetail = function(raw, title, poster) {
+        Lampa.Activity.push({
+            url:       '',
+            title:     title,
+            component: 'aniplex_detail',
+            _ani_raw:  raw,
+            _ani_poster: poster
+        });
+    };
+
+    self.start = function() {
+        Lampa.Controller.add('content', {
+            toggle: function() {
+                Lampa.Controller.toggle('content');
+                self.$grid.find('.selector').first().focus();
+            },
+            up:   Lampa.noop,
+            down: Lampa.noop,
+            back: function() { Lampa.Activity.backward(); }
+        });
+        Lampa.Controller.toggle('content');
+    };
+
+    self.pause   = function() {};
+    self.stop    = function() {};
+    self.destroy = function() {};
+}
+
+// ============================================================
+//  DETAIL COMPONENT  — власний екран, без full/card
+// ============================================================
+
+function DetailComp(params) {
+    var self    = this;
+    self.params = params;
+    self.raw    = params._ani_raw    || {};
+    self.poster = params._ani_poster || '';
+    self.title  = params.title       || '';
+    self.sources = [];
+    self.$btns   = null;
+
+    self.create = function() {
+        addStyles();
+
+        var backdrop = imgUrl(
+            self.raw.posters && self.raw.posters.original && self.raw.posters.original.url,
+            IMG_ALI
+        ) || self.poster;
+
+        var desc  = (self.raw.description || '').substring(0, 400);
+        var year  = self.raw.season && self.raw.season.year ? String(self.raw.season.year) : '';
+        var genres = (self.raw.genres || []).join(', ');
+
+        self.$root = $(
+            '<div class="aniplex_detail">'
+          + '<div class="aniplex_detail_bg" style="background-image:url(' + safeText(backdrop) + ')"></div>'
+          + '<div class="aniplex_detail_inner">'
+          + '<div class="aniplex_detail_poster"><img src="' + safeText(self.poster) + '" onerror="this.src=\'./img/img_error.svg\'"></div>'
+          + '<div class="aniplex_detail_right">'
+          + '<div class="aniplex_detail_title">' + safeText(self.title) + '</div>'
+          + '<div class="aniplex_detail_meta">' + safeText(year) + (genres ? ' &bull; ' + safeText(genres) : '') + '</div>'
+          + '<div class="aniplex_detail_desc">' + safeText(desc) + '</div>'
+          + '<div id="aniplex_btns"><div class="aniplex_loading_hint">Завантаження... <span class="aniplex_spin_sm"></span></div></div>'
+          + '</div></div></div>'
+        );
+
+        self.$btns = self.$root.find('#aniplex_btns');
+
+        self.loadSources();
+
+        return self.$root;
+    };
+
+    self.loadSources = function() {
+        // --- AniLibria episodes ---
+        var aliEps = [];
+        if (self.raw.player && self.raw.player.list) {
+            var host = self.raw.player.host ? 'https://' + self.raw.player.host : 'https://cache.libria.fun';
+            var list = self.raw.player.list;
+            Object.keys(list).sort(function(a,b){ return parseInt(a)-parseInt(b); }).forEach(function(n) {
+                var ep  = list[n];
+                var hls = ep.hls || {};
+                var q   = {};
+                if (hls.fhd) q['1080p'] = host + hls.fhd;
+                if (hls.hd)  q['720p']  = host + hls.hd;
+                if (hls.sd)  q['480p']  = host + hls.sd;
+                var file = q['1080p'] || q['720p'] || q['480p'] || '';
+                aliEps.push({ num: n, title: ep.name || ('Серія ' + n), file: file, quality: q });
             });
+        }
+        if (aliEps.length) {
+            self.sources.push({ label: 'AniLibria (' + aliEps.length + ' сер.)', dub: 'AniLibria', episodes: aliEps, type: 'hls' });
+        }
 
-            self.switchMode(self.mode);
-            return self.wrap;
-        };
+        // --- Kodik ---
+        var titleEn = (self.raw.names && self.raw.names.en) || self.title;
+        var url = API_KOD
+            + '?token=' + TOK_KOD
+            + '&title=' + encodeURIComponent(titleEn)
+            + '&limit=8&with_episodes=true&types=anime-serial,anime';
 
-        self.switchMode = function (m) {
-            self.mode = m; self.page = 1; self.grid.empty();
-            self.head.find('.ap-tab').removeClass('active');
-            self.head.find('[data-m="' + m + '"]').addClass('active');
-            self.load();
-        };
-
-        self.doSearch = function () {
-            Lampa.Modal.open({
-                title: 'Пошук аніме',
-                html:  Lampa.Template.get('modal_search', {}),
-                onSearch: function (q) {
-                    self.query = q; self.mode = 'search'; self.page = 1; self.grid.empty();
-                    self.head.find('.ap-tab').removeClass('active');
-                    self.head.find('[data-m="search"]').addClass('active');
-                    Lampa.Modal.close();
-                    self.load();
+        ajax(url, function(data) {
+            var results = data && data.results ? data.results : [];
+            results.forEach(function(r) {
+                var dub  = (r.translation && r.translation.title) ? r.translation.title : 'Kodik';
+                var eps  = [];
+                if (r.seasons) {
+                    Object.keys(r.seasons).sort(function(a,b){return parseInt(a)-parseInt(b);}).forEach(function(sn) {
+                        var s = r.seasons[sn];
+                        if (!s.episodes) return;
+                        Object.keys(s.episodes).sort(function(a,b){return parseInt(a)-parseInt(b);}).forEach(function(en) {
+                            var ep = s.episodes[en];
+                            if (ep.link) eps.push({ num: en, title: 'Серія ' + en, iframe: 'https:' + ep.link });
+                        });
+                    });
+                }
+                if (eps.length) {
+                    self.sources.push({ label: dub + ' (' + eps.length + ' сер.) [Kodik]', dub: dub, episodes: eps, type: 'iframe' });
+                } else if (r.link) {
+                    self.sources.push({ label: dub + ' [Kodik]', dub: dub, episodes: [{ num:'1', title: self.title, iframe: 'https:' + r.link }], type: 'iframe' });
                 }
             });
-        };
+            self.renderButtons();
+        }, function() {
+            self.renderButtons();
+        });
+    };
 
-        self.load = function () {
-            if (self.busy) return;
-            self.busy = true;
-            self.loader.show();
-            get(AniLibria.listUrl(self.mode, self.page, self.query), function (data) {
-                self.busy = false;
-                self.loader.hide();
-                (data.list || []).forEach(function (item) {
-                    self.addCard(AniLibria.buildCard(item));
-                });
-                if (self.page === 1) self.grid.find('.ap-card').first().trigger('focus');
-            });
-        };
+    self.renderButtons = function() {
+        self.$btns.empty();
 
-        self.addCard = function (card) {
-            var el = $(
-                '<div class="ap-card selector" tabindex="0">' +
-                '  <div class="ap-card-img"><img src="' + esc(card.poster) + '" loading="lazy" onerror="this.src=\'./img/img_error.svg\'">' +
-                '  <span class="ap-score">' + esc(card.score) + '\u2605</span></div>' +
-                '  <div class="ap-card-body">' +
-                '    <div class="ap-card-title">' + esc(card.title) + '</div>' +
-                '    <div class="ap-card-year">' + esc(card.year) + '</div>' +
-                '  </div>' +
-                '</div>'
-            );
-            el.on('click keydown', function (e) {
-                if (e.type === 'click' || e.keyCode === 13) self.openDetail(card);
-            });
-            self.grid.append(el);
-        };
+        if (!self.sources.length) {
+            self.$btns.html('<div style="color:rgba(255,255,255,0.4);font-size:13px">Відео не знайдено</div>');
+            return;
+        }
 
-        self.openDetail = function (card) {
-            Lampa.Activity.push({
-                url:       '',
-                title:     card.title,
-                component: 'aniplex_detail',
-                card:      card
-            });
-        };
+        var $btn = $(
+            '<div class="aniplex_btn aniplex_btn_play selector" tabindex="0">'
+          + '&#9654; Дивитись'
+          + '</div>'
+        );
+        $btn.on('click keydown', function(e) {
+            if (e.type === 'click' || e.keyCode === 13) self.pickSource();
+        });
 
-        self.start = function () {
-            Lampa.Controller.add('content', {
-                toggle: function () { Lampa.Controller.toggle('content'); self.grid.find('.selector').first().focus(); },
-                up: Lampa.noop, down: Lampa.noop,
-                back: function () { Lampa.Activity.backward(); }
-            });
-            Lampa.Controller.toggle('content');
-        };
+        var dubs = self.sources.map(function(s){ return s.dub; }).join(' · ');
+        self.$btns.append($btn);
+        self.$btns.append('<div class="aniplex_src_hint">Джерела: ' + safeText(dubs) + '</div>');
 
-        self.pause = self.stop = self.destroy = Lampa.noop;
+        $btn.focus();
+    };
+
+    self.pickSource = function() {
+        if (self.sources.length === 1) { self.pickEp(self.sources[0]); return; }
+        Lampa.Select.show({
+            title: 'Оберіть озвучку',
+            items: self.sources.map(function(s, i) { return { title: s.label, index: i }; }),
+            onSelect: function(item) { self.pickEp(self.sources[item.index]); },
+            onBack: Lampa.noop
+        });
+    };
+
+    self.pickEp = function(src) {
+        if (src.episodes.length === 1) { self.play(src.episodes[0], src.type); return; }
+        Lampa.Select.show({
+            title: self.title + ' — ' + src.dub,
+            items: src.episodes.map(function(ep) {
+                return { title: ep.title || ('Серія ' + ep.num), ep: ep, type: src.type };
+            }),
+            onSelect: function(item) { self.play(item.ep, item.type); },
+            onBack: Lampa.noop
+        });
+    };
+
+    self.play = function(ep, type) {
+        if (type === 'iframe' && ep.iframe) {
+            Lampa.Activity.push({ url: ep.iframe, title: self.title + ' — ' + ep.title, component: 'iframe' });
+        } else if (ep.file) {
+            Lampa.Player.play({ url: ep.file, title: self.title + ' — ' + ep.title, quality: ep.quality || {} });
+        } else {
+            Lampa.Noty.show('Посилання на відео відсутнє');
+        }
+    };
+
+    self.start = function() {
+        Lampa.Controller.add('content', {
+            toggle: function() {
+                Lampa.Controller.toggle('content');
+                var $f = self.$root.find('.selector').first();
+                if ($f.length) $f.focus();
+            },
+            up:   Lampa.noop,
+            down: Lampa.noop,
+            back: function() { Lampa.Activity.backward(); }
+        });
+        Lampa.Controller.toggle('content');
+    };
+
+    self.pause   = function() {};
+    self.stop    = function() {};
+    self.destroy = function() {};
+}
+
+// ============================================================
+//  INIT
+// ============================================================
+
+function start() {
+    if (!window.Lampa) return;
+
+    Lampa.Component.add('aniplex',        CatalogComp);
+    Lampa.Component.add('aniplex_detail', DetailComp);
+
+    var item = {
+        title:    'AniPlex',
+        subtitle: 'Аніме з озвучкою',
+        icon: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>',
+        action: function() {
+            Lampa.Activity.push({ url: '', title: 'AniPlex', component: 'aniplex', data: { mode: 'catalog' } });
+        }
+    };
+
+    if (Lampa.Menu && Lampa.Menu.add) {
+        Lampa.Menu.add(item);
     }
 
-    // ══════════════════════════════════════════════════════════════════
-    //  ДЕТАЛІ — власний екран без стандартного full-компонента
-    // ══════════════════════════════════════════════════════════════════
-    function DetailComponent(object) {
-        var self    = this;
-        var card    = object.card;
-        self.sources = [];
+    Lampa.Listener.follow('app', function(e) {
+        if (e.type === 'ready' && Lampa.Menu && Lampa.Menu.add) {
+            Lampa.Menu.add(item);
+        }
+    });
 
-        self.create = function () {
-            injectStyles();
-            self.wrap = $('<div class="ap-detail"></div>');
-            self.renderShell();
-            self.fetchSources();
-            return self.wrap;
-        };
+    console.log('[AniPlex] Plugin loaded OK');
+}
 
-        self.renderShell = function () {
-            self.wrap.html(
-                '<div class="ap-detail-bg" style="background-image:url(' + esc(card.backdrop || card.poster) + ')"></div>' +
-                '<div class="ap-detail-body">' +
-                '  <div class="ap-detail-poster"><img src="' + esc(card.poster) + '" onerror="this.src=\'./img/img_error.svg\'"></div>' +
-                '  <div class="ap-detail-info">' +
-                '    <h2 class="ap-detail-title">' + esc(card.title) + '</h2>' +
-                '    <div class="ap-detail-meta">' +
-                        esc(card.year) + (card.genres ? ' \u00b7 ' + esc(card.genres) : '') +
-                '    </div>' +
-                '    <div class="ap-detail-desc">' + esc(card.overview) + '</div>' +
-                '    <div class="ap-detail-btns" id="ap-detail-btns">' +
-                '      <div class="ap-loading-row">Завантаження джерел <span class="ap-spin-sm"></span></div>' +
-                '    </div>' +
-                '  </div>' +
-                '</div>'
-            );
-            self.$btns = self.wrap.find('#ap-detail-btns');
-        };
-
-        self.fetchSources = function () {
-            // 1. AniLibria — синхронно з даних картки
-            var aliEps = AniLibria.episodes(card._raw);
-            if (aliEps.length) {
-                self.sources.push({
-                    label:    '\u{1F535} AniLibria \u00b7 ' + aliEps.length + ' \u0441\u0435\u0440.',
-                    dub:      'AniLibria',
-                    episodes: aliEps,
-                    type:     'hls'
-                });
-            }
-
-            // 2. Kodik — асинхронно
-            var titleEn = card.original_title || card.title;
-            Kodik.search(titleEn, function (results) {
-                results.forEach(function (r) {
-                    var dub = r.translation && r.translation.title ? r.translation.title : 'Kodik';
-                    var eps = Kodik.episodes(r);
-                    if (eps.length) {
-                        self.sources.push({
-                            label:    '\u{1F7E0} ' + dub + ' \u00b7 ' + eps.length + ' \u0441\u0435\u0440. [Kodik]',
-                            dub:      dub,
-                            episodes: eps,
-                            type:     'iframe'
-                        });
-                    } else if (r.link) {
-                        self.sources.push({
-                            label:    '\u{1F7E0} ' + dub + ' (\u0444\u0456\u043b\u044c\u043c) [Kodik]',
-                            dub:      dub,
-                            episodes: [{ num: '1', title: card.title, iframe: 'https:' + r.link }],
-                            type:     'iframe'
-                        });
-                    }
-                });
-                self.renderButtons();
-            });
-        };
-
-        self.renderButtons = function () {
-            self.$btns.empty();
-
-            if (!self.sources.length) {
-                self.$btns.html('<div class="ap-no-src">Відео не знайдено в жодному джерелі</div>');
-                return;
-            }
-
-            // Головна кнопка «Дивитись»
-            var btnWatch = $('<div class="ap-btn ap-btn--watch selector" tabindex="0">\u25B6 \u0414\u0438\u0432\u0438\u0442\u0438\u0441\u044c</div>');
-            btnWatch.on('click keydown', function (e) {
-                if (e.type === 'click' || e.keyCode === 13) self.pickSource();
-            });
-            self.$btns.append(btnWatch);
-
-            // Список озвучок
-            var dubs = self.sources.map(function (s) { return s.dub; }).join(' \u00b7 ');
-            self.$btns.append($('<div class="ap-dubs">\u041e\u0437\u0432\u0443\u0447\u043a\u0438: ' + esc(dubs) + '</div>'));
-
-            btnWatch.focus();
-        };
-
-        self.pickSource = function () {
-            if (self.sources.length === 1) {
-                self.pickEpisode(self.sources[0]);
-                return;
-            }
-            Lampa.Select.show({
-                title: '\u041e\u0431\u0435\u0440\u0456\u0442\u044c \u0434\u0436\u0435\u0440\u0435\u043b\u043e / \u043e\u0437\u0432\u0443\u0447\u043a\u0443',
-                items: self.sources.map(function (s, i) { return { title: s.label, index: i }; }),
-                onSelect: function (item) { self.pickEpisode(self.sources[item.index]); },
-                onBack: Lampa.noop
-            });
-        };
-
-        self.pickEpisode = function (source) {
-            if (source.episodes.length === 1) {
-                self.play(source.episodes[0], source.type);
-                return;
-            }
-            Lampa.Select.show({
-                title: card.title + ' \u2014 ' + source.dub,
-                items: source.episodes.map(function (ep) {
-                    return { title: ep.title || ('\u0421\u0435\u0440\u0456\u044f ' + ep.num), ep: ep, type: source.type };
-                }),
-                onSelect: function (item) { self.play(item.ep, item.type); },
-                onBack: Lampa.noop
-            });
-        };
-
-        self.play = function (ep, type) {
-            if (type === 'iframe' && ep.iframe) {
-                Lampa.Activity.push({
-                    url:       ep.iframe,
-                    title:     card.title + ' \u2014 ' + (ep.title || ''),
-                    component: 'iframe'
-                });
-            } else if (ep.file) {
-                Lampa.Player.play({ url: ep.file, title: card.title + ' \u00b7 ' + ep.title, quality: ep.quality || {} });
-            } else {
-                Lampa.Noty.show('\u041f\u043e\u0441\u0438\u043b\u0430\u043d\u043d\u044f \u0432\u0456\u0434\u0441\u0443\u0442\u043d\u0454');
-            }
-        };
-
-        self.start = function () {
-            Lampa.Controller.add('content', {
-                toggle: function () {
-                    Lampa.Controller.toggle('content');
-                    var btn = self.wrap.find('.selector').first();
-                    if (btn.length) btn.focus();
-                },
-                up: Lampa.noop, down: Lampa.noop,
-                back: function () { Lampa.Activity.backward(); }
-            });
-            Lampa.Controller.toggle('content');
-        };
-
-        self.pause = self.stop = self.destroy = Lampa.noop;
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  СТИЛІ
-    // ══════════════════════════════════════════════════════════════════
-    function injectStyles() {
-        if (document.getElementById('aniplex-css')) return;
-        var s = document.createElement('style');
-        s.id = 'aniplex-css';
-        s.textContent = [
-            '.ap-catalog{padding:1.6em 2em;}',
-            '.ap-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.3em;flex-wrap:wrap;gap:.7em;}',
-            '.ap-logo{display:flex;align-items:center;gap:.65em;}',
-            '.ap-logo-icon{font-size:2em;}',
-            '.ap-logo-name{display:block;font-size:1.45em;font-weight:800;color:#e63946;}',
-            '.ap-logo-sub{display:block;font-size:.7em;color:rgba(255,255,255,.4);}',
-            '.ap-tabs{display:flex;gap:.45em;flex-wrap:wrap;}',
-            '.ap-tab{padding:.38em 1em;border-radius:2em;background:rgba(255,255,255,.08);cursor:pointer;font-size:.86em;transition:background .2s;}',
-            '.ap-tab:hover,.ap-tab:focus{background:rgba(255,255,255,.18);}',
-            '.ap-tab.active{background:#e63946;color:#fff;font-weight:700;}',
-            '.ap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1em;}',
-            '.ap-card{border-radius:9px;overflow:hidden;background:rgba(255,255,255,.06);cursor:pointer;outline:none;transition:transform .17s,box-shadow .17s;}',
-            '.ap-card:hover,.ap-card:focus{transform:translateY(-4px) scale(1.035);box-shadow:0 10px 32px rgba(0,0,0,.6);}',
-            '.ap-card-img{position:relative;aspect-ratio:2/3;overflow:hidden;}',
-            '.ap-card-img img{width:100%;height:100%;object-fit:cover;display:block;}',
-            '.ap-score{position:absolute;top:.35em;right:.35em;background:rgba(0,0,0,.78);color:#ffd166;font-size:.7em;padding:.18em .46em;border-radius:1em;font-weight:700;}',
-            '.ap-card-body{padding:.5em .6em .65em;}',
-            '.ap-card-title{font-size:.8em;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}',
-            '.ap-card-year{font-size:.7em;color:rgba(255,255,255,.4);margin-top:.2em;}',
-            '.ap-loader{display:flex;justify-content:center;padding:3em;}',
-            '.ap-detail{position:relative;min-height:100%;overflow:hidden;}',
-            '.ap-detail-bg{position:absolute;inset:0;background-size:cover;background-position:center top;filter:blur(18px) brightness(.32);transform:scale(1.08);z-index:0;}',
-            '.ap-detail-body{position:relative;z-index:1;display:flex;gap:2em;padding:2em;align-items:flex-start;flex-wrap:wrap;}',
-            '.ap-detail-poster{width:180px;flex-shrink:0;border-radius:10px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.7);}',
-            '.ap-detail-poster img{width:100%;display:block;}',
-            '.ap-detail-info{flex:1;min-width:220px;}',
-            '.ap-detail-title{font-size:1.55em;font-weight:800;margin:0 0 .3em;line-height:1.2;}',
-            '.ap-detail-meta{font-size:.82em;color:rgba(255,255,255,.5);margin-bottom:.8em;}',
-            '.ap-detail-desc{font-size:.84em;line-height:1.55;color:rgba(255,255,255,.78);max-height:7em;overflow:hidden;margin-bottom:1.2em;}',
-            '.ap-detail-btns{display:flex;flex-direction:column;gap:.65em;align-items:flex-start;}',
-            '.ap-btn{display:inline-flex;align-items:center;padding:.55em 1.7em;border-radius:2em;font-size:.95em;font-weight:700;cursor:pointer;outline:none;transition:transform .15s,box-shadow .15s;}',
-            '.ap-btn--watch{background:#e63946;color:#fff;}',
-            '.ap-btn--watch:hover,.ap-btn--watch:focus{transform:scale(1.05);box-shadow:0 6px 22px rgba(230,57,70,.6);}',
-            '.ap-dubs{font-size:.74em;color:rgba(255,255,255,.4);}',
-            '.ap-no-src{font-size:.84em;color:rgba(255,255,255,.38);}',
-            '.ap-loading-row{font-size:.84em;color:rgba(255,255,255,.45);display:flex;align-items:center;gap:.5em;}',
-            '.ap-spin{width:36px;height:36px;border:3px solid rgba(255,255,255,.1);border-top-color:#e63946;border-radius:50%;animation:ap-rot .75s linear infinite;}',
-            '.ap-spin-sm{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.15);border-top-color:#e63946;border-radius:50%;animation:ap-rot .75s linear infinite;}',
-            '@keyframes ap-rot{to{transform:rotate(360deg);}}'
-        ].join('');
-        document.head.appendChild(s);
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  РЕЄСТРАЦІЯ
-    // ══════════════════════════════════════════════════════════════════
-    function init() {
-        Lampa.Component.add('aniplex',        CatalogComponent);
-        Lampa.Component.add('aniplex_detail', DetailComponent);
-
-        var menuItem = {
-            title:    'AniPlex',
-            subtitle: 'AniLibria + Kodik + YummyAnime',
-            icon: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>',
-            action: function () {
-                Lampa.Activity.push({ url: '', title: 'AniPlex', component: 'aniplex', data: { mode: 'catalog' } });
-            }
-        };
-
-        function tryMenu() { if (Lampa.Menu && Lampa.Menu.add) Lampa.Menu.add(menuItem); }
-        tryMenu();
-        Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') tryMenu(); });
-
-        console.log('[AniPlex] v2 завантажено');
-    }
-
-    if (window.Lampa) init();
-    else window.addEventListener('load', function () { if (window.Lampa) init(); });
+if (window.Lampa) {
+    start();
+} else {
+    var _t = setInterval(function() {
+        if (window.Lampa) { clearInterval(_t); start(); }
+    }, 100);
+}
 
 })();
